@@ -1,0 +1,10 @@
+{
+    "commands" : [
+        { "var" : "/sys/network/mac",
+          "exec" : "ifconfig eth0 | grep ether | awk {'printf \"%s\",$2'}" },
+        { "var" : "/sys/info/uptime",
+          "exec" : "uptime | tr '\\n' '\\0'" },
+        { "var" : "/sys/network/ip",
+          "exec" : "ifconfig | grep broadcast | awk {'printf \"%s\",$2'}"}
+    ]
+}
