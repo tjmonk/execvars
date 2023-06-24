@@ -7,9 +7,6 @@ project(execvars
     DESCRIPTION "Server to execute predefined command sequences associated with system variables"
 )
 
-find_library( LIB_VARSERVER varserver REQUIRED )
-find_library( LIB_TJSON tjson REQUIRED )
-
 add_executable( ${PROJECT_NAME}
 	src/execvars.c
 )
@@ -21,9 +18,8 @@ target_include_directories( ${PROJECT_NAME}
 target_link_libraries( ${PROJECT_NAME}
 	${CMAKE_THREAD_LIBS_INIT}
 	rt
-	${LIB_VARSERVER}
-    ${LIB_TJSON}
-    ${LIB_VARTEMPLATE}
+	varserver
+    tjson
 )
 
 install(TARGETS ${PROJECT_NAME}
