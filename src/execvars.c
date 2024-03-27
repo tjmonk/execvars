@@ -212,7 +212,10 @@ void main(int argc, char **argv)
         }
 
         /* close the variable server */
-        VARSERVER_Close( state.hVarServer );
+        if ( VARSERVER_Close( state.hVarServer ) == EOK )
+        {
+            state.hVarServer = NULL;
+        }
     }
 }
 
