@@ -164,7 +164,7 @@ void main(int argc, char **argv)
     /* clear the execvars state object */
     memset( &state, 0, sizeof( state ) );
 
-    if( argc < 2 )
+    if( argc < 3 )
     {
         usage( argv[0] );
         exit( 1 );
@@ -455,10 +455,10 @@ static void usage( char *cmdname )
     if( cmdname != NULL )
     {
         fprintf(stderr,
-                "usage: %s [-v] [-h] "
-                " [-h] : display this help"
-                " [-v] : verbose output"
-                " -f <filename> : configuration file",
+                "usage: %s [-v] [-h] -f <filename>\n"
+                " [-h] : display this help\n"
+                " [-v] : verbose output\n"
+                " -f <filename> : configuration file\n",
                 cmdname );
     }
 }
