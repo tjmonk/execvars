@@ -411,54 +411,80 @@ static int ExecuteVar( ExecVarsState *pState,
     @retval NULL - command could not be executed
 
 ============================================================================*/
-FILE *popen2(const char *command, const char *mode, pid_t* pid)
+FILE *popen2( const char *command, const char *mode, pid_t *pid )
 {
     const int READ = 0;
     const int WRITE = 1;
 
-    int  pfp[2];     /* the pipe and the process */
-    FILE *fp;       /* fdopen makes a fd a stream   */
-    int parent_end, child_end;  /* of pipe          */
+    int pfp[2];     /* the pipe and the process */
+    FILE *fp;       /* fdopen makes a fd a stream */
+    int parent_end, child_end;  /* of pipe */
 
-    if ( *mode == 'r' ){        /* figure out direction     */
+    if( *mode == 'r' )
+    {
+        /* figure out direction */
         parent_end = READ;
-        child_end = WRITE ;
-    } else if ( *mode == 'w' ){
+        child_end = WRITE;
+    }
+    else if( *mode == 'w' )
+    {
         parent_end = WRITE;
-            child_end = READ ;
-    } else return NULL ;
-
-    if ( pipe(pfp) == -1 )          /* get a pipe       */
+        child_end = READ;
+    }
+    else
+    {
         return NULL;
-    if ( (*pid = fork()) == -1 ){       /* and a process    */
-        close(pfp[0]);          /* or dispose of pipe   */
-        close(pfp[1]);
+    }
+
+    if( pipe( pfp ) == -1 )
+    {
+        /* get a pipe */
+        return NULL;
+    }
+
+    if( ( *pid = fork() ) == -1 )
+    {
+        /* and a process */
+        close( pfp[0] ); /* or dispose of pipe */
+        close( pfp[1] );
         return NULL;
     }
 
     /* --------------- parent code here ------------------- */
-    /*   need to close one end and fdopen other end     */
+    /* need to close one end and fdopen other end */
 
-    if ( *pid > 0 ){
-        if (close( pfp[child_end] ) == -1 )
+    if( *pid > 0 )
+    {
+        if( close( pfp[child_end] ) == -1 )
+        {
             return NULL;
-        return fdopen( pfp[parent_end] , mode); /* same mode */
+        }
+        return fdopen( pfp[parent_end], mode ); /* same mode */
     }
 
     /* --------------- child code here --------------------- */
-    /*   need to redirect stdin or stdout then exec the cmd  */
+    /* need to redirect stdin or stdout then exec the cmd */
 
-    if ( close(pfp[parent_end]) == -1 ) /* close the other end  */
-        exit(1);            /* do NOT return    */
+    if( close( pfp[parent_end] ) == -1 )
+    {
+        /* close the other end */
+        exit( 1 ); /* do NOT return */
+    }
 
-    if ( dup2(pfp[child_end], child_end) == -1 )
-        exit(1);
+    if( dup2( pfp[child_end], child_end ) == -1 )
+    {
+        exit( 1 );
+    }
 
-    if ( close(pfp[child_end]) == -1 )  /* done with this one   */
-        exit(1);
-                        /* all set to run cmd   */
+    if( close( pfp[child_end] ) == -1 )
+    {
+        /* done with this one */
+        exit( 1 );
+    }
+
+    /* all set to run cmd */
     execl( "/bin/sh", "sh", "-c", command, NULL );
-    exit(1);
+    exit( 1 );
 }
 
 /*==========================================================================*/
@@ -466,7 +492,7 @@ FILE *popen2(const char *command, const char *mode, pid_t* pid)
 /*!
     Execute a command and pipe the output to the output stream
 
-    The ExecuteCommandr function executes the specified command
+    The ExecuteCommand function executes the specified command
     and redirects the command output to the specified output stream
 
     @param[in]
@@ -487,7 +513,7 @@ FILE *popen2(const char *command, const char *mode, pid_t* pid)
     @retval EINVAL - invalid arguments
 
 ============================================================================*/
-static int ExecuteCommand( char *cmd, int fd, int timeout_seconds)
+static int ExecuteCommand( char *cmd, int fd, int timeout_seconds )
 {
     int n;
     int result = EINVAL;
@@ -505,7 +531,7 @@ static int ExecuteCommand( char *cmd, int fd, int timeout_seconds)
         result = ENOENT;
 
         /* only fork a process if timeout is needed */
-        if (timeout_seconds <= 0)
+        if( timeout_seconds <= 0 )
         {
             /* execute the command */
             fp_in = popen( cmd, "r" );
@@ -514,10 +540,10 @@ static int ExecuteCommand( char *cmd, int fd, int timeout_seconds)
                 do
                 {
                     /* read a buffer of output */
-                    n = fread( buf, 1, BUFSIZ, fp_in);
+                    n = fread( buf, 1, BUFSIZ, fp_in );
                     if( n > 0 )
                     {
-                        if ( fd >= 0 )
+                        if( fd >= 0 )
                         {
                             /* set the output to the output stream */
                             write( fd, buf, n );
@@ -535,12 +561,12 @@ static int ExecuteCommand( char *cmd, int fd, int timeout_seconds)
         else
         {
             /* execute the command */
-            fp_in = popen2( cmd, "r" , &pid );
+            fp_in = popen2( cmd, "r", &pid );
             if( fp_in != NULL )
             {
                 /* get the file descriptor to use later with kill */
                 pipefd = fileno( fp_in );
-                if ( pipefd >= 0 )
+                if( pipefd >= 0 )
                 {
                     /* Set up the timeout context for select */
                     FD_ZERO( &readfds );
@@ -551,14 +577,14 @@ static int ExecuteCommand( char *cmd, int fd, int timeout_seconds)
                     do
                     {
                         retval = select( pipefd + 1, &readfds, NULL, NULL, &timeout );
-                        if ( retval < 0 )
+                        if( retval < 0 )
                         {
                             /* select error */
                             result = EINVAL;
                         }
                         else
                         {
-                            if ( retval == 0 )
+                            if( retval == 0 )
                             {
                                 /* timeout occurred, kill the process */
                                 result = EINVAL;
@@ -567,10 +593,10 @@ static int ExecuteCommand( char *cmd, int fd, int timeout_seconds)
                             else
                             {
                                 /* read a buffer of output */
-                                n = fread( buf, 1, BUFSIZ, fp_in);
+                                n = fread( buf, 1, BUFSIZ, fp_in );
                                 if( n > 0 )
                                 {
-                                    if ( fd >= 0 )
+                                    if( fd >= 0 )
                                     {
                                         /* set the output to the output stream */
                                         write( fd, buf, n );
@@ -578,7 +604,8 @@ static int ExecuteCommand( char *cmd, int fd, int timeout_seconds)
                                 }
                                 else
                                 {
-                                    if (n == 0) {
+                                    if( n == 0 )
+                                    {
                                         /* end of data, exit now */
                                         retval = 0;
                                         result = EOK;
@@ -591,7 +618,7 @@ static int ExecuteCommand( char *cmd, int fd, int timeout_seconds)
                                 }
                             }
                         }
-                    } while ( retval > 0 );
+                    } while( retval > 0 );
                 }
                 else
                 {
@@ -601,7 +628,7 @@ static int ExecuteCommand( char *cmd, int fd, int timeout_seconds)
             }
 
             /* close the command output data stream in any case */
-            pclose(fp_in);
+            pclose( fp_in );
         }
     }
 
