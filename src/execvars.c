@@ -589,6 +589,7 @@ static int ExecuteCommand( char *cmd, int fd, int timeout_seconds )
                                 /* timeout occurred, kill the process */
                                 result = EINVAL;
                                 kill( pid, SIGKILL );
+                                syslog( LOG_ERR, "Timeout %d seconds exceeded for command %s\n", timeout_seconds, cmd );
                             }
                             else
                             {
