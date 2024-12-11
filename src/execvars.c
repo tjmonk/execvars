@@ -65,8 +65,15 @@ SOFTWARE.
 #include <stdlib.h>
 #include <unistd.h>
 #include <syslog.h>
+#include <signal.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/wait.h>
+#include <sys/time.h>
 #include <varserver/varserver.h>
 #include <tjson/json.h>
+#include <sys/select.h>
 
 /*============================================================================
         Private definitions
@@ -406,15 +413,19 @@ static int ExecuteCommand( char *cmd, int fd, int timeout_seconds)
 {
     int n;
     int result = EINVAL;
+    int retval;
     char buf[BUFSIZ];
     FILE *fp_in;
+    int pipefd;
+    fd_set readfds;
+    struct timeval timeout;
 
     if( cmd != NULL )
     {
         /* assume command not executed until popen succeeds */
         result = ENOENT;
 
-        /* only fork a process if timeout is needed*/
+        /* only fork a process if timeout is needed */
         if (timeout_seconds <= 0)
         {
             /* execute the command */
@@ -444,9 +455,75 @@ static int ExecuteCommand( char *cmd, int fd, int timeout_seconds)
         }
         else
         {
-            /* Implement the timeout calling here */
-        }
+            /* execute the command */
+            fp_in = popen( cmd, "r" );
+            if( fp_in != NULL )
+            {
+                /* get the file descriptor to use later with kill */
+                pipefd = fileno( fp_in );
+                if ( pipefd >= 0 )
+                {
+                    /* Set up the timeout context for select */
+                    FD_ZERO( &readfds );
+                    FD_SET( pipefd, &readfds );
+                    timeout.tv_sec = timeout_seconds;
+                    timeout.tv_usec = 0;
 
+                    do
+                    {
+                        retval = select( pipefd + 1, &readfds, NULL, NULL, &timeout );
+                        if ( retval < 0 )
+                        {
+                            /* select error */
+                            result = EINVAL;
+                        }
+                        else
+                        {
+                            if ( retval == 0 )
+                            {
+                                /* timeout occurred, kill the process */
+                                result = EINVAL;
+                                kill( getpid(), SIGKILL );
+                            }
+                            else
+                            {
+                                /* read a buffer of output */
+                                n = fread( buf, 1, BUFSIZ, fp_in);
+                                if( n > 0 )
+                                {
+                                    if ( fd >= 0 )
+                                    {
+                                        /* set the output to the output stream */
+                                        write( fd, buf, n );
+                                    }
+                                }
+                                else
+                                {
+                                    if (n == 0) {
+                                        /* end of data, exit now */
+                                        retval = 0;
+                                        result = EOK;
+                                    }
+                                    else
+                                    {
+                                        /* error reading data */
+                                        result = EINVAL;
+                                    }
+                                }
+                            }
+                        }
+                    } while ( retval > 0 );
+                }
+                else
+                {
+                    /* error getting file descriptor */
+                    result = EINVAL;
+                }
+            }
+
+            /* close the command output data stream in any case */
+            pclose(fp_in);
+        }
     }
 
     return result;
