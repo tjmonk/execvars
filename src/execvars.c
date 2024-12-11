@@ -96,6 +96,9 @@ typedef struct execVarsState
     /*! verbose flag */
     bool verbose;
 
+    /*! timeout in seconds */
+    int timeout_seconds;
+
     /*! name of the ExecVars definition file */
     char *pFileName;
 
@@ -122,7 +125,7 @@ static int ExecuteVar( ExecVarsState *pState,
                        VAR_HANDLE hVar,
                        int sig,
                        int fd );
-static int ExecuteCommand( char *cmd, int fd );
+static int ExecuteCommand( char *cmd, int fd, int timeout_seconds);
 static void SetupTerminationHandler( void );
 static void TerminationHandler( int signum, siginfo_t *info, void *ptr );
 
@@ -352,7 +355,7 @@ static int ExecuteVar( ExecVarsState *pState,
                 {
                     if ( sig == SIG_VAR_PRINT )
                     {
-                        result = ExecuteCommand( pExecVar->pCmd, fd );
+                        result = ExecuteCommand( pExecVar->pCmd, fd, pState->timeout_seconds );
                     }
                     else
                     {
@@ -389,12 +392,17 @@ static int ExecuteVar( ExecVarsState *pState,
         fd
             output file descriptor to pipe the command output to
 
+    @param[in]
+        timeout_seconds
+            timeout in seconds, if it is 0, the command is executed
+            in the current process, otherwise, a new process is forked
+
     @retval EOK - command executed successfully
     @retval ENOENT - the command was not found
     @retval EINVAL - invalid arguments
 
 ============================================================================*/
-static int ExecuteCommand( char *cmd, int fd )
+static int ExecuteCommand( char *cmd, int fd, int timeout_seconds)
 {
     int n;
     int result = EINVAL;
@@ -406,30 +414,39 @@ static int ExecuteCommand( char *cmd, int fd )
         /* assume command not executed until popen succeeds */
         result = ENOENT;
 
-        /* execute the command */
-        fp_in = popen( cmd, "r" );
-        if( fp_in != NULL )
+        /* only fork a process if timeout is needed*/
+        if (timeout_seconds <= 0)
         {
-            do
+            /* execute the command */
+            fp_in = popen( cmd, "r" );
+            if( fp_in != NULL )
             {
-                /* read a buffer of output */
-                n = fread( buf, 1, BUFSIZ, fp_in);
-                if( n > 0 )
+                do
                 {
-                    if ( fd >= 0 )
+                    /* read a buffer of output */
+                    n = fread( buf, 1, BUFSIZ, fp_in);
+                    if( n > 0 )
                     {
-                        /* set the output to the output stream */
-                        write( fd, buf, n );
+                        if ( fd >= 0 )
+                        {
+                            /* set the output to the output stream */
+                            write( fd, buf, n );
+                        }
                     }
-                }
-            } while( n > 0 );
+                } while( n > 0 );
 
-            /* close the command output data stream */
-            pclose( fp_in );
+                /* close the command output data stream */
+                pclose( fp_in );
 
-            /* indicate success */
-            result = EOK;
+                /* indicate success */
+                result = EOK;
+            }
         }
+        else
+        {
+            /* Implement the timeout calling here */
+        }
+
     }
 
     return result;
@@ -455,9 +472,10 @@ static void usage( char *cmdname )
     if( cmdname != NULL )
     {
         fprintf(stderr,
-                "usage: %s [-v] [-h] -f <filename>\n"
+                "usage: %s [-v] [-h] [-t <timeout>] -f <filename>\n"
                 " [-h] : display this help\n"
                 " [-v] : verbose output\n"
+                " [-t] : timeout in seconds (will create a new process for every exec call)\n"
                 " -f <filename> : configuration file\n",
                 cmdname );
     }
@@ -491,7 +509,7 @@ static int ProcessOptions( int argC, char *argV[], ExecVarsState *pState )
 {
     int c;
     int result = EINVAL;
-    const char *options = "hvf:";
+    const char *options = "hvt:f:";
 
     if( ( pState != NULL ) &&
         ( argV != NULL ) )
@@ -510,6 +528,10 @@ static int ProcessOptions( int argC, char *argV[], ExecVarsState *pState )
 
                 case 'f':
                     pState->pFileName = strdup(optarg);
+                    break;
+
+                case 't':
+                    pState->timeout_seconds = atoi(optarg);
                     break;
 
                 default:
