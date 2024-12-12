@@ -132,7 +132,9 @@ static int ExecuteVar( ExecVarsState *pState,
                        VAR_HANDLE hVar,
                        int sig,
                        int fd );
-static int ExecuteCommand( char *cmd, int fd, int timeout_seconds);
+static int ExecuteCommand( char *cmd, int fd, int timeout_seconds );
+static int ExecuteCommandInfiniteWait( char *cmd, int fd );
+static int ExecuteCommandWithTimeout( char *cmd, int fd, int timeout_seconds );
 static void SetupTerminationHandler( void );
 static void TerminationHandler( int signum, siginfo_t *info, void *ptr );
 
@@ -488,6 +490,174 @@ FILE *popen2( const char *command, const char *mode, pid_t *pid )
 }
 
 /*==========================================================================*/
+/*  ExecuteCommandInfiniteWait                                              */
+/*!
+    Execute a command and pipe the output to the output stream
+
+    The ExecuteCommandInfiniteWait function executes the specified command
+    and redirects the command output to the specified output stream. It would
+    block indefinitely until the command completes.
+
+    @param[in]
+       cmd
+            pointer to the NUL terminated command string to execute
+
+    @param[in]
+        fd
+            output file descriptor to pipe the command output to
+
+    @retval EOK - command executed successfully
+    @retval ENOENT - the command was not found
+    @retval EINVAL - invalid arguments
+
+============================================================================*/
+static int ExecuteCommandInfiniteWait( char *cmd, int fd )
+{
+    int n;
+    int result = ENOENT;
+    char buf[BUFSIZ];
+    FILE *fp_in;
+
+    fp_in = popen( cmd, "r" );
+    if( fp_in != NULL )
+    {
+        do
+        {
+            /* read a buffer of output */
+            n = fread( buf, 1, BUFSIZ, fp_in );
+            if( n > 0 )
+            {
+                if( fd >= 0 )
+                {
+                    /* set the output to the output stream */
+                    write( fd, buf, n );
+                }
+            }
+        } while( n > 0 );
+
+        /* close the command output data stream */
+        pclose( fp_in );
+
+        /* indicate success */
+        result = EOK;
+    }
+
+    return result;
+}
+
+/*==========================================================================*/
+/*  ExecuteCommandWithTimeout                                               */
+/*!
+    Execute a command and pipe the output to the output stream
+
+    The ExecuteCommandWithTimeout function executes the specified command
+    and redirects the command output to the specified output stream. It
+    will terminate the command if the timeout is exceeded.
+
+    @param[in]
+       cmd
+            pointer to the NUL terminated command string to execute
+
+    @param[in]
+        fd
+            output file descriptor to pipe the command output to
+
+    @param[in]
+        timeout_seconds
+            timeout in seconds, if it is 0, the command is executed
+            in the current process, otherwise, a new process is forked
+
+    @retval EOK - command executed successfully
+    @retval ENOENT - the command was not found
+    @retval EINVAL - invalid arguments
+
+============================================================================*/
+static int ExecuteCommandWithTimeout( char *cmd, int fd, int timeout_seconds )
+{
+    int n;
+    int result = ENOENT;
+    int retval;
+    char buf[BUFSIZ];
+    FILE *fp_in;
+    int pipefd;
+    fd_set readfds;
+    struct timeval timeout;
+    int pid;
+
+    fp_in = popen2( cmd, "r", &pid );
+    if( fp_in != NULL )
+    {
+        /* get the file descriptor to use later with kill */
+        pipefd = fileno( fp_in );
+        if( pipefd >= 0 )
+        {
+            /* Set up the timeout context for select */
+            FD_ZERO( &readfds );
+            FD_SET( pipefd, &readfds );
+            timeout.tv_sec = timeout_seconds;
+            timeout.tv_usec = 0;
+
+            do
+            {
+                retval = select( pipefd + 1, &readfds, NULL, NULL, &timeout );
+                if( retval < 0 )
+                {
+                    /* select error */
+                    result = EINVAL;
+                }
+                else
+                {
+                    if( retval == 0 )
+                    {
+                        /* timeout occurred, kill the process */
+                        result = EINVAL;
+                        kill( pid, SIGKILL );
+                        syslog( LOG_ERR, "Timeout %d seconds exceeded for command %s\n", timeout_seconds, cmd );
+                    }
+                    else
+                    {
+                        /* read a buffer of output */
+                        n = fread( buf, 1, BUFSIZ, fp_in );
+                        if( n > 0 )
+                        {
+                            if( fd >= 0 )
+                            {
+                                /* set the output to the output stream */
+                                write( fd, buf, n );
+                            }
+                        }
+                        else
+                        {
+                            if( n == 0 )
+                            {
+                                /* end of data, exit now */
+                                retval = 0;
+                                result = EOK;
+                            }
+                            else
+                            {
+                                /* error reading data */
+                                result = EINVAL;
+                            }
+                        }
+                    }
+                }
+            } while( retval > 0 );
+        }
+        else
+        {
+            /* error getting file descriptor */
+            result = EINVAL;
+        }
+    }
+
+    /* close the command output data stream in any case */
+    pclose( fp_in );
+
+    return result;
+}
+
+/*==========================================================================*/
 /*  ExecuteCommand                                                          */
 /*!
     Execute a command and pipe the output to the output stream
@@ -527,109 +697,15 @@ static int ExecuteCommand( char *cmd, int fd, int timeout_seconds )
 
     if( cmd != NULL )
     {
-        /* assume command not executed until popen succeeds */
-        result = ENOENT;
-
-        /* only fork a process if timeout is needed */
-        if( timeout_seconds <= 0 )
+        if( timeout_seconds > 0 )
         {
-            /* execute the command */
-            fp_in = popen( cmd, "r" );
-            if( fp_in != NULL )
-            {
-                do
-                {
-                    /* read a buffer of output */
-                    n = fread( buf, 1, BUFSIZ, fp_in );
-                    if( n > 0 )
-                    {
-                        if( fd >= 0 )
-                        {
-                            /* set the output to the output stream */
-                            write( fd, buf, n );
-                        }
-                    }
-                } while( n > 0 );
-
-                /* close the command output data stream */
-                pclose( fp_in );
-
-                /* indicate success */
-                result = EOK;
-            }
+            /* execute the command and wait for the specified timeout */
+            result = ExecuteCommandWithTimeout( cmd, fd, timeout_seconds );
         }
         else
         {
-            /* execute the command */
-            fp_in = popen2( cmd, "r", &pid );
-            if( fp_in != NULL )
-            {
-                /* get the file descriptor to use later with kill */
-                pipefd = fileno( fp_in );
-                if( pipefd >= 0 )
-                {
-                    /* Set up the timeout context for select */
-                    FD_ZERO( &readfds );
-                    FD_SET( pipefd, &readfds );
-                    timeout.tv_sec = timeout_seconds;
-                    timeout.tv_usec = 0;
-
-                    do
-                    {
-                        retval = select( pipefd + 1, &readfds, NULL, NULL, &timeout );
-                        if( retval < 0 )
-                        {
-                            /* select error */
-                            result = EINVAL;
-                        }
-                        else
-                        {
-                            if( retval == 0 )
-                            {
-                                /* timeout occurred, kill the process */
-                                result = EINVAL;
-                                kill( pid, SIGKILL );
-                                syslog( LOG_ERR, "Timeout %d seconds exceeded for command %s\n", timeout_seconds, cmd );
-                            }
-                            else
-                            {
-                                /* read a buffer of output */
-                                n = fread( buf, 1, BUFSIZ, fp_in );
-                                if( n > 0 )
-                                {
-                                    if( fd >= 0 )
-                                    {
-                                        /* set the output to the output stream */
-                                        write( fd, buf, n );
-                                    }
-                                }
-                                else
-                                {
-                                    if( n == 0 )
-                                    {
-                                        /* end of data, exit now */
-                                        retval = 0;
-                                        result = EOK;
-                                    }
-                                    else
-                                    {
-                                        /* error reading data */
-                                        result = EINVAL;
-                                    }
-                                }
-                            }
-                        }
-                    } while( retval > 0 );
-                }
-                else
-                {
-                    /* error getting file descriptor */
-                    result = EINVAL;
-                }
-            }
-
-            /* close the command output data stream in any case */
-            pclose( fp_in );
+            /* execute the command and wait indefinitely */
+            result = ExecuteCommandInfiniteWait( cmd, fd );
         }
     }
 
