@@ -208,18 +208,19 @@ void main(int argc, char **argv)
             if( sig == SIG_VAR_PRINT )
             {
                 /* open a print session */
-                VAR_OpenPrintSession( state.hVarServer,
-                                      sigval,
-                                      &hVar,
-                                      &fd );
+                if ( VAR_OpenPrintSession( state.hVarServer,
+                                           sigval,
+                                           &hVar,
+                                           &fd ) == EOK )
+                {
+                    /* execute the variable */
+                    ExecuteVar( &state, hVar, sig, fd );
 
-                /* execute the variable */
-                ExecuteVar( &state, hVar, sig, fd );
-
-                /* Close the print session */
-                VAR_ClosePrintSession( state.hVarServer,
-                                       sigval,
-                                       fd );
+                    /* Close the print session */
+                    VAR_ClosePrintSession( state.hVarServer,
+                                        sigval,
+                                        fd );
+                }
             }
         }
 
